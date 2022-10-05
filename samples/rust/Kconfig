@@ -70,6 +70,16 @@ config SAMPLE_RUST_MISCDEV
 
 	  If unsure, say N.
 
+config SAMPLE_RUST_AESDCHAR
+	tristate "AESD Char Device"
+	help
+	  This option builds the Rust virtual device module sample.
+
+	  To compile this as a module, choose M here:
+	  the module will be called rust_vdev.
+
+	  If unsure, say N.
+
 config SAMPLE_RUST_STACK_PROBING
 	tristate "Stack probing"
 	help

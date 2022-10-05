@@ -5,6 +5,8 @@ SUBLEVEL = 0
 EXTRAVERSION = -rc7
 NAME = Hurr durr I'ma ninja sloth
 
+LLVM = "1"
+
 # *DOCUMENTATION*
 # To see a list of typical targets execute "make help"
 # More info can be located in ./README
@@ -1847,6 +1849,14 @@ rustfmtcheck: rustfmt
 PHONY += rust-analyzer
 rust-analyzer:
 	$(Q)$(MAKE) $(build)=rust $@
+
+PHONY += rustwatch
+rustwatch:
+	$(Q) cargo watch -w ./samples/rust/rust_vdev.rs -cs 'make && qemu-system-x86_64 -nographic -kernel vmlinux -initrd initrd.img -nic user,model=rtl8139,hostfwd=tcp::5555-:23'
+
+PHONY += rustvm
+rustvm:
+	$(Q) make && qemu-system-x86_64 -nographic $(DEVARG) -kernel vmlinux -initrd initrd.img -nic user,model=rtl8139,hostfwd=tcp::5555-:23
 
 # Misc
 # ---------------------------------------------------------------------------
