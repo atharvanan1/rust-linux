@@ -70,6 +70,7 @@ impl Operations for RustAesdChar {
         let copy = reader.read_all()?;
         let len = copy.len();
         let mut working_entry = data.working_entry.lock();
+        let mut reading_entry = data.reading_entry.lock();
         let buf: &mut Vec<Vec<u8>> = &mut *data.contents.lock();
         let vec: &mut Vec<u8> = &mut buf[*working_entry];
         let mut terminated = false;
@@ -91,6 +92,9 @@ impl Operations for RustAesdChar {
             // Push the terminatation for string
             vec.try_push(0);
             *working_entry = (*working_entry + 1) % AESDCHAR_MAX_WRITE_SUPPORTED;
+            if *working_entry == *reading_entry {
+                *reading_entry = (*reading_entry + 1) % AESDCHAR_MAX_WRITE_SUPPORTED;
+            }
         }
         Ok(len)
     }
