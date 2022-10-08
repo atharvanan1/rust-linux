@@ -1,7 +1,7 @@
 //! Virtual Device Module
 use kernel::prelude::*;
 
-use kernel::file::{flags, File, Operations};
+use kernel::file::{File, Operations};
 use kernel::io_buffer::{IoBufferReader, IoBufferWriter};
 use kernel::sync::smutex::Mutex;
 use kernel::sync::{Ref, RefBorrow};
@@ -11,21 +11,19 @@ module! {
     type: RustAesdChar,
     name: "rust_aesdchar",
     license: "GPL",
-    params: {
-        devices: u32 {
-            default: 1,
-            permissions: 0o644,
-            description: "Number of virtual devices",
-        },
-    },
 }
+
+const AESDCHAR_MAX_WRITE_SUPPORTED: usize = 10;
+
 struct Device {
     number: usize,
-    contents: Mutex<Vec<u8>>,
+    contents: Mutex<Vec<Vec<u8>>>,
+    working_entry: Mutex<usize>,
+    reading_entry: Mutex<usize>,
 }
 
 struct RustAesdChar {
-    _devs: Vec<Pin<Box<miscdev::Registration<RustAesdChar>>>>,
+    _devs: Pin<Box<miscdev::Registration<RustAesdChar>>>,
 }
 
 #[vtable]
@@ -45,10 +43,19 @@ impl Operations for RustAesdChar {
         offset: u64,
     ) -> Result<usize> {
         pr_info!("File for device {} was read\n", data.number);
-        let offset = offset.try_into()?;
-        let vec = data.contents.lock();
-        let len = core::cmp::min(writer.len(), vec.len().saturating_sub(offset));
-        writer.write_slice(&vec[offset..][..len])?;
+        let offset: usize = offset.try_into()?;
+        let mut reading_entry = data.reading_entry.lock();
+        let working_entry = data.working_entry.lock();
+        let buf: &Vec<Vec<u8>> = &*data.contents.lock();
+        let vec: &Vec<u8> = &buf[*reading_entry];
+        let len = core::cmp::min(writer.len(), vec.len());
+        if len > 0 {
+            // if all bytes are consumed
+            if len == vec.len() {
+                *reading_entry = (*reading_entry + 1) % AESDCHAR_MAX_WRITE_SUPPORTED;
+            }
+            writer.write_slice(&vec[..len])?;
+        }
         Ok(len)
     }
 
@@ -56,41 +63,58 @@ impl Operations for RustAesdChar {
         data: RefBorrow<'_, Device>,
         _file: &File,
         reader: &mut impl IoBufferReader,
-        offset: u64,
+        _offset: u64,
     ) -> Result<usize> {
         pr_info!("File for device {} was written\n", data.number);
-        let offset: usize = offset.try_into()?;
-        let len = reader.len();
-        let new_len = len.checked_add(offset).ok_or(EINVAL)?;
-        let mut vec = data.contents.lock();
-        if new_len > vec.len() {
-            vec.try_resize(new_len, 0)?;
+        let _offset: usize = _offset.try_into()?;
+        let copy = reader.read_all()?;
+        let len = copy.len();
+        let mut working_entry = data.working_entry.lock();
+        let buf: &mut Vec<Vec<u8>> = &mut *data.contents.lock();
+        let vec: &mut Vec<u8> = &mut buf[*working_entry];
+        let mut terminated = false;
+
+        // Check if we have '/n'
+        for elem in copy.iter() {
+            if *elem == 10 {
+                terminated = true;
+            }
         }
-        reader.read_slice(&mut vec[offset..][..len])?;
+        pr_info!("{:?}", vec);
+
+        // Copy into the selected vector
+        for elem in copy.iter() {
+            vec.try_push(*elem)?;
+        }
+        // If we terminated, then we change the working_entry
+        if terminated {
+            // Push the terminatation for string
+            vec.try_push(0);
+            *working_entry = (*working_entry + 1) % AESDCHAR_MAX_WRITE_SUPPORTED;
+        }
         Ok(len)
     }
 }
 
 impl Module for RustAesdChar {
-    fn init(_name: &'static CStr, module: &'static ThisModule) -> Result<Self> {
-        let count = {
-            let lock = module.kernel_param_lock();
-            (*devices.read(&lock)).try_into()?
-        };
+    fn init(_name: &'static CStr, _module: &'static ThisModule) -> Result<Self> {
         pr_info!("-----------------------\n");
-        pr_info!("starting {} vdevices!\n", count);
-        pr_info!("watching for changes...\n");
+        pr_info!("starting aesdchar dev..\n");
         pr_info!("-----------------------\n");
-        let mut devs = Vec::try_with_capacity(count)?;
-        for i in 0..count {
-            let dev = Ref::try_new(Device {
-                number: i,
-                contents: Mutex::new(Vec::new()),
-            })?;
-            let reg = miscdev::Registration::new_pinned(fmt!("rust_aesdchar{i}"), dev)?;
-            devs.try_push(reg)?;
+        let mut vec_of_vec: Vec<Vec<u8>> = Vec::new();
+        for _ in 0..AESDCHAR_MAX_WRITE_SUPPORTED {
+            let vec: Vec<u8> = Vec::new();
+            vec_of_vec.try_push(vec)?;
         }
-        Ok(Self { _devs: devs })
+        pr_info!("{:?}", vec_of_vec);
+        let dev = Ref::try_new(Device {
+            number: 0,
+            contents: Mutex::new(vec_of_vec),
+            working_entry: Mutex::new(0),
+            reading_entry: Mutex::new(0),
+        })?;
+        let reg = miscdev::Registration::new_pinned(fmt!("rust_aesdchar"), dev)?;
+        Ok(Self { _devs: reg })
       }
 }
 

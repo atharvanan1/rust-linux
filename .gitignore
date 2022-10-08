@@ -171,3 +171,8 @@ sphinx_*/
 
 # Rust analyzer configuration
 /rust-project.json
+
+
+# Added by cargo
+
+/target
