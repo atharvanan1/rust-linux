@@ -31,7 +31,7 @@ impl Operations for RustAesdChar {
     type OpenData = Ref<Device>;
     type Data = Ref<Device>;
 
-    fn open(context: &Ref<Device>, file: &File) -> Result<Ref<Device>> {
+    fn open(context: &Ref<Device>, _file: &File) -> Result<Ref<Device>> {
         pr_info!("File for device {} was opened\n", context.number);
         Ok(context.clone())
     }
@@ -43,9 +43,8 @@ impl Operations for RustAesdChar {
         offset: u64,
     ) -> Result<usize> {
         pr_info!("File for device {} was read\n", data.number);
-        let offset: usize = offset.try_into()?;
+        let _offset: usize = offset.try_into()?;
         let mut reading_entry = data.reading_entry.lock();
-        let working_entry = data.working_entry.lock();
         let buf: &Vec<Vec<u8>> = &*data.contents.lock();
         let vec: &Vec<u8> = &buf[*reading_entry];
         let len = core::cmp::min(writer.len(), vec.len());
@@ -81,7 +80,6 @@ impl Operations for RustAesdChar {
                 terminated = true;
             }
         }
-        pr_info!("{:?}", vec);
 
         // Copy into the selected vector
         for elem in copy.iter() {
@@ -90,12 +88,16 @@ impl Operations for RustAesdChar {
         // If we terminated, then we change the working_entry
         if terminated {
             // Push the terminatation for string
-            vec.try_push(0);
+            vec.try_push(0)?;
             *working_entry = (*working_entry + 1) % AESDCHAR_MAX_WRITE_SUPPORTED;
             if *working_entry == *reading_entry {
                 *reading_entry = (*reading_entry + 1) % AESDCHAR_MAX_WRITE_SUPPORTED;
             }
+            let vec_new: &mut Vec<u8> = &mut buf[*working_entry];
+            vec_new.clear();
         }
+        pr_info!("{:?}", buf);
+        pr_info!("Written {} bytes", len);
         Ok(len)
     }
 }
